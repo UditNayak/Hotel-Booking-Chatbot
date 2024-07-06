@@ -13,7 +13,8 @@ chatRouter.post('/', async (req, res) => {
     }
     try {
         const responseMessage = await processMessage(receivedString);
-        res.status(200).send(responseMessage);
+        console.log("Received: " + responseMessage);
+        res.status(200).json(responseMessage);  
     } catch (error) {
         res.status(500).send('Internal Server Error');
     }
