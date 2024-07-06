@@ -1,8 +1,8 @@
-const { sendMessage } = require('./chatbotResponse');
+const { sendMessage } = require('./chatbotResponse3');
 
-const processMessage = async (message) => {
+const processMessage = async (prompt,messages ) => {
   try {
-      const response = await sendMessage(message);
+      const response = await sendMessage({prompt, messages});
       console.log("Received: " + response);
 
       // Format the response if it's an array of objects
