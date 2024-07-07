@@ -3,18 +3,15 @@ require('dotenv').config();
 
 const apiKey = process.env.OPENAI_API_KEY;
 
-async function sendMessage({prompt , messages}) {
+async function sendMessage({ prompt, messages }) {
     const url = 'https://api.openai.com/v1/chat/completions';
-    // const messages = [
-    //     { role: 'system', content: 'You are a helpful assistant.' },
-    //     { role: 'user', content: prompt }
-    // ];
-    console.log(messages);
+
     messages.push({ role: 'user', content: prompt });
+
     const data = {
-        model: 'gpt-4',
+        model: 'gpt-3.5-turbo',
         messages,
-        tools: tools,
+        tools,
     };
 
     try {
@@ -30,13 +27,12 @@ async function sendMessage({prompt , messages}) {
 
         if (toolCalls) {
             const availableFunctions = {
-                getAllRooms: getAllRooms,
-                getPrice: getPrice,
-                createBooking: createBooking
+                getAllRooms,
+                getPrice,
+                createBooking
             };
-            console.log(responseMessage);
+
             messages.push(responseMessage);
-            console.log(messages);
 
             for (const toolCall of toolCalls) {
                 const functionName = toolCall.function.name;
@@ -50,10 +46,20 @@ async function sendMessage({prompt , messages}) {
                     name: functionName,
                     content: JSON.stringify(functionResponse),
                 });
+
+                // Check for missing parameters and prompt the user
+                if (functionResponse.missingParams) {
+                    for (const prompt of functionResponse.prompts) {
+                        messages.push({ role: 'assistant', content: prompt });
+                    }
+
+                    // Re-send message with updated messages to gather missing info
+                    return await sendMessage({ prompt: '', messages });
+                }
             }
-            console.log(messages);
+
             const tempData = {
-                model: 'gpt-4',
+                model: 'gpt-3.5-turbo',
                 messages
             };
             const secondResponse = await axios.post(url, tempData, {
@@ -63,7 +69,9 @@ async function sendMessage({prompt , messages}) {
                 }
             });
 
-            return secondResponse.data.choices;
+            return secondResponse.data.choices[0].message.content;
+        } else {
+            return response.data.choices[0].message.content;
         }
     } catch (error) {
         console.error('Error:', error.response ? error.response.data : error.message);
@@ -100,7 +108,7 @@ const tools = [
     },
     {
         "name": "createBooking",
-        "description": "Book a room for a guest. This function books a room for a guest. You need to provide the room ID, guest's full name, email, and the number of nights to book the room for. The function returns the booking confirmation details. The parameters must be JSON encoded. Ask for the information you need from the user before calling this function. Dont create anything from by yourself. ASk for evry parameter to the user until it provides it. This is a very important function . You can use this function to book a room for a guest. You need to provide the room ID, guest's full name, email, and the number of nights to book the room for. The function returns the booking confirmation details. The parameters must be JSON encoded. Ask for the information you need from the user before calling this function. Dont create anything from by yourself. ASk for evry parameter to the user until it provides it. This is a very important function",
+        "description": "Book a room for a guest. This function books a room for a guest. You need to provide the room ID, guest's full name, email, and the number of nights to book the room for. The function returns the booking confirmation details. The parameters must be JSON encoded. Ask for the information you need from the user before calling this function. Don't create anything by yourself. Ask for every parameter from the user until it is provided.",
         "type": "function",
         "function": {
             "name": "createBooking",
@@ -133,8 +141,24 @@ const tools = [
 const processMessage = async (message) => {
     try {
         const response = await sendMessage(message);
-        console.log("Received: ", response);
-        return response;
+        let messages = message.messages;
+
+        if (response && response[0].tool_calls) {
+            for (const toolCall of response[0].tool_calls) {
+                const { name, content } = toolCall;
+                const functionResponse = JSON.parse(content);
+
+                if (functionResponse.missingParams) {
+                    for (const prompt of functionResponse.prompts) {
+                        messages.push({ role: 'assistant', content: prompt });
+                    }
+                } else {
+                    messages.push({ role: 'assistant', content: `Booking confirmed: ${JSON.stringify(functionResponse)}` });
+                }
+            }
+        }
+
+        return messages;
     } catch (error) {
         console.error('Error processing message:', error);
         return null;
@@ -151,12 +175,20 @@ async function getAllRooms() {
     }
 }
 
-async function createBooking({ roomId, fullName, email, nights }) {
+async function createBooking(args) {
+    const requiredParams = ['roomId', 'fullName', 'email', 'nights'];
+    const missingParams = requiredParams.filter(param => !args[param]);
+
+    if (missingParams.length > 0) {
+        const prompts = missingParams.map(param => `Please provide your ${param}:`);
+        return { missingParams, prompts };
+    }
+
     const bookingData = {
-        roomId: roomId,
-        fullName: fullName,
-        email: email,
-        nights: nights
+        roomId: args.roomId,
+        fullName: args.fullName,
+        email: args.email,
+        nights: args.nights
     };
 
     try {
